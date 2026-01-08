@@ -135,6 +135,35 @@ int licenza_valida(const char *id) {
 }
 
 
+int get_licenza(const char *id, char *stato_out, char *scadenza_out) {
+    pthread_mutex_lock(&file_mutex);
+    FILE *fp = fopen(FILE_LICENZE, "r");
+    if (!fp) {
+        pthread_mutex_unlock(&file_mutex);
+        return 0;
+    }
+
+    char line[BUF_SIZE];
+    while (fgets(line, sizeof(line), fp)) {
+        char lid[50], lstato[10], lscad[20];
+        sscanf(line, "%49[^,],%9[^,],%19[^\n]", lid, lstato, lscad);
+        if (strcmp(lid, id) == 0) {
+            strcpy(stato_out, lstato);
+            strcpy(scadenza_out, lscad);
+            fclose(fp);
+            pthread_mutex_unlock(&file_mutex);
+            return 1;
+        }
+    }
+
+    fclose(fp);
+    pthread_mutex_unlock(&file_mutex);
+    return 0;
+}
+
+
+
+
 // Funzione eseguita da un thread per gestire un singolo client
 void* client_handler(void *arg) {
     // arg è un puntatore a un intero che contiene il socket del client
@@ -163,25 +192,29 @@ void* client_handler(void *arg) {
             salva_licenza(id, stato, scadenza);
             send(sock, "OK\n", 3, 0);
         }
-    }
-    else if (strcmp(comando, "UPDATE") == 0) { // se la licenza non esiste da errore altrimenti aggiorna la licenza
-        if (!licenza_esiste(id)) {
+    } else if (strcmp(comando, "UPDATE") == 0) {
+
+        char stato_attuale[10];
+        char scadenza_attuale[20];
+
+        if (!get_licenza(id, stato_attuale, scadenza_attuale)) {
             send(sock, "ERRORE: ID non esistente\n", 26, 0);
-        } else {
-            salva_licenza(id, stato, scadenza);
-            send(sock, "OK\n", 3, 0);
+            close(sock);
+            return NULL;
         }
-    }
-    else if (strcmp(comando, "CHECK") == 0) { // se la licenza non esiste da errore altrimenti controlla la licenza
-        if (!licenza_esiste(id)) {
-            send(sock, "ERRORE: ID non esistente\n", 26, 0);
-        } else {
-            int val = licenza_valida(id);
-            if (send(sock, val ? "VALIDA\n" : "INVALIDA\n", val ? 7 : 9, 0) < 0)
-                perror("Errore send");
-        }        
-    }
-    else if (strcmp(comando, "LISTA") == 0) { // stampa tutte le licenze
+
+        // stesso stato
+        if (strcmp(stato_attuale, stato) == 0) {
+            send(sock, "ERRORE: stato già impostato\n", 29, 0);
+            close(sock);
+            return NULL;
+        }
+
+
+        // salva SOLO stato, scadenza invariata
+        salva_licenza(id, stato, scadenza_attuale);
+        send(sock, "OK\n", 3, 0);
+    } else if (strcmp(comando, "LISTA") == 0) { // stampa tutte le licenze
         pthread_mutex_lock(&file_mutex);      
         FILE *fp = fopen(FILE_LICENZE, "r");  
         if (!fp) {                             
@@ -197,8 +230,15 @@ void* client_handler(void *arg) {
             pthread_mutex_unlock(&file_mutex); 
             send(sock, risposta, strlen(risposta), 0); 
         }
-    }
-    else {
+    }else if (strcmp(comando, "CHECK") == 0) { // se la licenza non esiste da errore altrimenti controlla la licenza 
+        if (!licenza_esiste(id)) { 
+            send(sock, "ERRORE: ID non esistente\n", 26, 0); 
+        } else { 
+            int val = licenza_valida(id);
+            if (send(sock, val ? "VALIDA\n" : "INVALIDA\n", val ? 7 : 9, 0) < 0) 
+                perror("Errore send"); 
+            } 
+    } else {
         // Comando sbagliato
         if (send(sock, "ERR - comando errato\n", 22, 0) < 0)
             perror("Errore send");

@@ -12,7 +12,7 @@
 #define MAX_CLIENT    10
 
 // Funzione che inoltra la richiesta al serverL
-void forward_a_serverL(const char *msg, char *response) {
+void chiedi_serverL(const char *msg, char *response) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
         perror("Errore socket serverL");
@@ -54,7 +54,7 @@ void* client_handler(void *arg) {
     buffer[n] = '\0';
 
     char response[BUF_SIZE * 10]; // buffer più grande per LISTA
-    forward_a_serverL(buffer, response);
+    chiedi_serverL(buffer, response);
 
     send(sock, response, strlen(response), 0);
     close(sock);
